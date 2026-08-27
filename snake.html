@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🐍 ГАЛДА-ЗМЕЙКА</title>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+body {
+    background: #0a0a14;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    touch-action: none;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+}
+canvas {
+    border: 2px solid #00ffaa;
+    border-radius: 12px;
+    box-shadow: 0 0 40px #00ffaa33;
+    background: #0a0a14;
+    touch-action: none;
+}
+.score {
+    color: #fff;
+    font-size: 22px;
+    font-weight: bold;
+    text-shadow: 0 0 15px #00ffaa66;
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+}
+.golda {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 80px;
+    font-weight: bold;
+    color: #ffdd00;
+    text-shadow: 0 0 50px #ffdd00, 0 0 100px #ffdd0066;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 10;
+}
+.golda.show {
+    animation: goldaAnim .8s ease-out forwards;
+}
+@keyframes goldaAnim {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
+    30% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
+    70% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -80%) scale(1); }
+}
+.game-over {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.9);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    gap: 20px;
+    z-index: 20;
+}
+.game-over.show {
+    display: flex;
+}
+.game-over h1 {
+    color: #ff1493;
+    font-size: 42px;
+    text-shadow: 0 0 40px #ff149366;
+}
+.game-over .final-score {
+    color: #00ffaa;
+    font-size: 28px;
+}
+.game-over .restart-btn {
+    padding: 15px 50px;
+    border: 2px solid #00ffaa;
+    border-radius: 30px;
+    background: transparent;
+    color: #00ffaa;
+    font-size: 20px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: 0.3s;
+}
+.game-over .restart-btn:active {
+    background: #00ffaa;
+    color: #0a0a14;
+}
+</style>
+</head>
+<body>
+
+<div class="score">🐍 Счет: <span id="scoreDisplay">0</span></div>
+<canvas id="gameCanvas"></canvas>
+<div class="golda" id="goldaText">ГАЛДА!</div>
+
+<div class="game-over" id="gameOverScreen">
+    <h1>💀 ИГРА ОКОНЧЕНА</h1>
+    <div class="final-score">🍎 Счет: <span id="finalScoreDisplay">0</span></div>
+    <button class="restart-btn" id="restartButton">🔄 Сыграть ещё</button>
+</div>
+
+<script>
+// ========== ПОЛУЧАЕМ ЭЛЕМЕНТЫ ==========
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreDisplay = document.getElementById('scoreDisplay');
+const finalScoreDisplay = document.getElementById('finalScoreDisplay');
+const gameOverScreen = document.getElementById('gameOverScreen');
+const goldaText = document.getElementById('goldaText');
+const restartButton = document.getElementById('restartButton');
+
+// ========== НАСТРОЙКИ ==========
+const CELL_SIZE = 25;
+let COLS, ROWS;
+let canvasSize;
+
+function resizeCanvas() {
+    const maxSize = Math.min(window.innerWidth - 20, window.innerHeight - 100, 500);
+    canvasSize = Math.floor(maxSize / CELL_SIZE) * CELL_SIZE;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    COLS = Math.floor(canvasSize / CELL_SIZE);
+    ROWS = Math.floor(canvasSize / CELL_SIZE);
+}
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ========== ПЕРЕМЕННЫЕ ==========
+let snake = [];
+let food = {};
+let direction = { x: 1, y: 0 };
+let nextDirection = { x: 1, y: 0 };
+let score = 0;
+let gameRunning = true;
+let gameLoop = null;
+let particles = [];
+let touchStart = null;
+
+// ========== ИНИЦИАЛИЗАЦИЯ ==========
+function initGame() {
+    const startX = Math.floor(COLS / 2);
+    const startY = Math.floor(ROWS / 2);
+    snake = [
+        { x: startX, y: startY },
+        { x: startX - 1, y: startY },
+        { x: startX - 2, y: startY }
+    ];
+    direction = { x: 1, y: 0 };
+    nextDirection = { x: 1, y: 0 };
+    score = 0;
+    particles = [];
+    gameRunning = true;
+    gameOverScreen.classList.remove('show');
+    scoreDisplay.textContent = '0';
+    spawnFood();
+    drawGame();
+}
+
+// ========== ЕДА ==========
+function spawnFood() {
+    let pos;
+    let attempts = 0;
+    do {
+        pos = {
+            x: Math.floor(Math.random() * COLS),
+            y: Math.floor(Math.random() * ROWS)
+        };
+        attempts++;
+    } while (snake.some(s => s.x === pos.x && s.y === pos.y) && attempts < 1000);
+    food = pos;
+}
+
+// ========== ЧАСТИЦЫ ==========
+function createParticles(x, y) {
+    const colors = ['#ff1493', '#ffdd00', '#00ccff', '#ff00ff', '#00ffaa'];
+    for (let i = 0; i < 30; i++) {
+        particles.push({
+            x: x * CELL_SIZE + CELL_SIZE / 2,
+            y: y * CELL_SIZE + CELL_SIZE / 2,
+            vx: (Math.random() - 0.5) * 12,
+            vy: (Math.random() - 0.5) * 12 - 2,
+            life: 30 + Math.random() * 20,
+            maxLife: 50,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: 2 + Math.random() * 4
+        });
+    }
+}
+
+function updateParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.2;
+        p.life--;
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
+function drawParticles() {
+    for (const p of particles) {
+        const alpha = p.life / p.maxLife;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+}
+
+// ========== ПОКАЗАТЬ "ГАЛДА!" ==========
+function showGolda() {
+    goldaText.classList.remove('show');
+    // Триггер перерисовки
+    void goldaText.offsetWidth;
+    goldaText.classList.add('show');
+    setTimeout(() => {
+        goldaText.classList.remove('show');
+    }, 800);
+}
+
+// ========== ОБНОВЛЕНИЕ ==========
+function updateGame() {
+    if (!gameRunning) return;
+
+    direction = { ...nextDirection };
+
+    const head = snake[0];
+    const newHead = {
+        x: head.x + direction.x,
+        y: head.y + direction.y
+    };
+
+    // Стены
+    if (newHead.x < 0 || newHead.x >= COLS || newHead.y < 0 || newHead.y >= ROWS) {
+        gameOver();
+        return;
+    }
+
+    // Собственное тело
+    if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
+        gameOver();
+        return;
+    }
+
+    snake.unshift(newHead);
+
+    // Съела еду?
+    if (newHead.x === food.x && newHead.y === food.y) {
+        score++;
+        scoreDisplay.textContent = score;
+        createParticles(food.x, food.y);
+        showGolda();
+        spawnFood();
+    } else {
+        snake.pop();
+    }
+
+    updateParticles();
+    drawGame();
+}
+
+// ========== GAME OVER ==========
+function gameOver() {
+    gameRunning = false;
+    finalScoreDisplay.textContent = score;
+    gameOverScreen.classList.add('show');
+}
+
+// ========== ОТРИСОВКА ==========
+function drawGame() {
+    ctx.fillStyle = '#0a0a14';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Сетка
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x <= canvas.width; x += CELL_SIZE) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+    }
+    for (let y = 0; y <= canvas.height; y += CELL_SIZE) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+    }
+
+    // Змейка
+    for (let i = 0; i < snake.length; i++) {
+        const s = snake[i];
+        const x = s.x * CELL_SIZE;
+        const y = s.y * CELL_SIZE;
+        const isHead = i === 0;
+
+        if (isHead) {
+            ctx.shadowColor = '#00ffaa';
+            ctx.shadowBlur = 20;
+        }
+
+        ctx.fillStyle = isHead ? '#00ffaa' : '#00cc88';
+        ctx.beginPath();
+        ctx.roundRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4, 6);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+
+        // Глаза
+        if (isHead) {
+            const eyeSize = 4;
+            let ex1, ey1, ex2, ey2;
+            const offset = 7;
+            if (direction.x === 1) {
+                ex1 = x + CELL_SIZE - offset; ey1 = y + offset;
+                ex2 = x + CELL_SIZE - offset; ey2 = y + CELL_SIZE - offset;
+            } else if (direction.x === -1) {
+                ex1 = x + offset; ey1 = y + offset;
+                ex2 = x + offset; ey2 = y + CELL_SIZE - offset;
+            } else if (direction.y === -1) {
+                ex1 = x + offset; ey1 = y + offset;
+                ex2 = x + CELL_SIZE - offset; ey2 = y + offset;
+            } else {
+                ex1 = x + offset; ey1 = y + CELL_SIZE - offset;
+                ex2 = x + CELL_SIZE - offset; ey2 = y + CELL_SIZE - offset;
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(ex1, ey1, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(ex2, ey2, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Зрачки
+            ctx.fillStyle = '#0a0a14';
+            ctx.beginPath();
+            ctx.arc(ex1 + direction.x * 1.5, ey1 + direction.y * 1.5, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(ex2 + direction.x * 1.5, ey2 + direction.y * 1.5, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // Еда
+    const fx = food.x * CELL_SIZE;
+    const fy = food.y * CELL_SIZE;
+    const pulse = 6 * (Date.now() % 600 / 600);
+    
+    ctx.shadowColor = '#ff1493';
+    ctx.shadowBlur = 25 + pulse;
+    ctx.fillStyle = '#ff1493';
+    ctx.beginPath();
+    ctx.roundRect(fx + 3, fy + 3, CELL_SIZE - 6, CELL_SIZE - 6, 8);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Блик на еде
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath();
+    ctx.arc(fx + 8, fy + 8, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Частицы
+    drawParticles();
+}
+
+// ========== УПРАВЛЕНИЕ ==========
+function setDirection(dx, dy) {
+    if (direction.x !== -dx || direction.y !== -dy) {
+        nextDirection = { x: dx, y: dy };
+    }
+}
+
+// ========== ТАЧ-УПРАВЛЕНИЕ (iPhone/Android) ==========
+canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    touchStart = { x: touch.clientX, y: touch.clientY };
+}, { passive: false });
+
+canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchend', function(e) {
+    e.preventDefault();
+    if (!touchStart) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStart.x;
+    const dy = touch.clientY - touchStart.y;
+    const minSwipe = 20;
+
+    if (Math.abs(dx) < minSwipe && Math.abs(dy) < minSwipe) return;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+        setDirection(dx > 0 ? 1 : -1, 0);
+    } else {
+        setDirection(0, dy > 0 ? 1 : -1);
+    }
+    touchStart = null;
+}, { passive: false });
+
+// ========== КЛАВИАТУРА (ПК) ==========
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowUp') { e.preventDefault(); setDirection(0, -1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setDirection(0, 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); setDirection(-1, 0); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); setDirection(1, 0); }
+    if (e.key === ' ' || e.key === 'Space') {
+        e.preventDefault();
+        if (!gameRunning) restartGame();
+    }
+});
+
+// ========== РЕСТАРТ ==========
+function restartGame() {
+    if (gameLoop) {
+        clearInterval(gameLoop);
+        gameLoop = null;
+    }
+    initGame();
+    gameLoop = setInterval(updateGame, 130);
+}
+
+restartButton.addEventListener('click', restartGame);
+restartButton.addEventListener('touchend', function(e) {
+    e.preventDefault();
+    restartGame();
+});
+
+// ========== ПОЛИФИЛЛ ДЛЯ ROUNDRECT ==========
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (r > w/2) r = w/2;
+        if (r > h/2) r = h/2;
+        this.moveTo(x + r, y);
+        this.lineTo(x + w - r, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r);
+        this.lineTo(x + w, y + h - r);
+        this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        this.lineTo(x + r, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r);
+        this.lineTo(x, y + r);
+        this.quadraticCurveTo(x, y, x + r, y);
+        this.closePath();
+        return this;
+    };
+}
+
+// ========== ЗАПУСК ==========
+initGame();
+gameLoop = setInterval(updateGame, 130);
+</script>
+</body>
+</html>
